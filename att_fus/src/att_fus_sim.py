@@ -38,7 +38,7 @@ class UnscentedKF():
         self.p_qua #Covariance matrix in quaternion form
         self.P0_QUA
     
-    def time_update(self,x_pre,q_qua,x_input):
+    def time_update(self,x_pre,q_qua,gyro_input):
         """Time Update Part in UKF
 
         Attributes:
@@ -58,7 +58,7 @@ class UnscentedKF():
         x_mius=numpy.tile(self.CONST_N,numpy.array([x_pre-CONST_LAMBDA*L_chol]))
         x_self=numpy.array([x_pre])
         x_chi_prior=numpy.concatenate((x_self,x_plus,x_minus))
-        self.x_chi_current=self.sys_dym(x_chi_prior)
+        self.x_chi_current=self.sys_dym(gyro_input,x_chi_prior)
         self.x_hat_prior=numpy.dot(x_chi_current,self.W_M)
         temp_prior = x_chi_current-numpy.tile(self.x_hat_prior, (1, (2*self.n+1)))
         p_prior=numpy.dot(temp_prior,numpy.dot(W_C,temp_prior.T))+q_qua
@@ -70,7 +70,7 @@ class UnscentedKF():
             likes_spam: A boolean indicating if we like SPAM or not.
             eggs: An integer count of the eggs we have laid.
         """
-        y_chi_prior=self.mea_dym(mea_data,self.x_chi_current)
+        y_chi_prior=self.mea_dym(mea_data,self.x_chi_current,self.CONST_N)
         self.y_hat_prior=y_chi_prior*self.W_M
         temp_x = self.x_chi_current-numpy.tile(self.x_hat_prior, (1, (2*self.n+1)))
         temp_y = self.y_chi_current-numpy.tile(self.y_hat_prior, (1, (2*self.n+1)))
@@ -102,16 +102,56 @@ class AttitudeFilter():
         # initialize a UKF with this class's members
         self.uncented_kf= UnscentedKF(self.system_dynamics, self.measurement_dynamics, Q, self., P0, x0)
     
-    def sys_dym(self,x_input,x_val):
-        system_matrix=numpy.matrix([[1,-x_input[0]*self.dt/2,-x_input[1]*self.dt/2,-x_input[2]*self.dt/2]...,[0,1,dt,0],[0,0,1,0],[0,0,0,1]])
-        x_chi=        
-        return 
+    def sys_dym(self,gyro_input,x_chi_prior):
+        now=rospy.get_time()
+        dt=now-self.last_update        
+        sys_matrix=numpy.zeros([4,4],dtype=float)
+        sys_matrix[0][0]=1
+        sys_matrix[0][1]=gyro_input[0]*self.dt/2
+        sys_matrix[0][2]=gyro_input[1]*self.dt/2
+        sys_matrix[0][3]=gyro_input[2]*self.dt/2
+        sys_matrix[1][0]=-gyro_input[0]*self.dt/2
+        sys_matrix[1][1]=1
+        sys_matrix[1][2]=-gyro_input[2]*self.dt/2
+        sys_matrix[1][3]=gyro_input[1]*self.dt/2
+        sys_matrix[2][0]=-gyro_input[1]*self.dt/2
+        sys_matrix[2][1]=gyro_input[2]*self.dt/2
+        sys_matrix[2][2]=1
+        sys_matrix[2][3]=-gyro_input[0]*self.dt/2
+        sys_matrix[3][0]=-gyro_input[2]*self.dt/2
+        sys_matrix[3][1]=-gyro_input[1]*self.dt/2
+        sys_matrix[3][2]=gyro_input[0]*self.dt/2
+        sys_matrix[3][3]=1
+        self.x_chi_cur=numpy.dot(sys_matrix,x_chi_prior)  
+        self.last_update=now
+        return self.x_chi_cur
     
-    def mea_dym(self,)
-        
+    def mea_dym(self,mea_input,CONST_N):
+        for i in range(0,CONST_N):
+            mea_matrix=numpy.zeros([3,3],dtype=float)
+            mea_matrix[0][0]=self.chi_cur[0][i]**2+self.chi_cur[1][i]**2
+                            -self.chi_cur[2][i]**2-self.chi_cur[3][i]**2
+            mea_matrix[0][1]=2*(numpy.dot(self.chi_cur[1][i],self.chi_cur[2][i])
+                             +numpy.dot(self.chi_cur[0][i],self.chi_cur[3][i]))            
+            mea_matrix[0][2]=2*(numpy.dot(self.chi_cur[1][i],self.chi_cur[3][i])
+                             +numpy.dot(self.chi_cur[0][i],self.chi_cur[2][i]))                       
+            mea_matrix[1][0]=2*(numpy.dot(self.chi_cur[1][i],self.chi_cur[2][i])
+                             +numpy.dot(self.chi_cur[0][i],self.chi_cur[3][i]))
+            mea_matrix[1][1]=self.chi_cur[0][i]**2-self.chi_cur[1][i]**2
+                            +self.chi_cur[2][i]**2-self.chi_cur[3][i]**2
+            mea_matrix[1][2]=2*(numpy.dot(self.chi_cur[2][i],self.chi_cur[3][i])
+                             -numpy.dot(self.chi_cur[0][i],self.chi_cur[1][i]))
+            mea_matrix[2][0]=2*(numpy.dot(self.chi_cur[1][i],self.chi_cur[3][i])
+                             +numpy.dot(self.chi_cur[0][i],self.chi_cur[2][i]))            
+            mea_matrix[2][1]=2*(numpy.dot(self.chi_cur[2][i],self.chi_cur[3][i])
+                             +numpy.dot(self.chi_cur[0][i],self.chi_cur[1][i]))                       
+            mea_matrix[2][2]=self.chi_cur[0][i]**2-self.chi_cur[1][i]**2
+                            -self.chi_cur[2][i]**2+self.chi_cur[3][i]*2
+            self.y_chi_cur=numpy.dot(mea_matrix,x_chi_cur)
+                
     def gyro_update(self,data):
         gyro_mea=[data.vector.x,data.vector.y,data.vector.z]
-        self.uncented_kf=measurement_update(gyro_mea)   
+        self.uncented_kf=time_update(gyro_mea)   
    
     def acc_update(self,data):
         acc_mea=[data.vector.x,data.vector.y,data.vector.z]
