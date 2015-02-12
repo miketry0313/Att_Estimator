@@ -96,18 +96,19 @@ class AttitudeFilter():
         Q_EUL[0][0]=0.01   # Uncertainty in pitch angle when system subject flucturation
         Q_EUL[1][1]=0.01   # Uncertainty in roll angle when system subject flucturation
         Q_EUL[2][2]=0.01   # Uncertainty in yaw angle when system subject flucturation
-        R_EUL=numpy.eye(6,dtype=float)  
+        R_ACC=numpy.eye(3,dtype=float) 
+        R_MAG=numpy.eye(3,dtype=float)
         # Define measurement noise matrix in Euler form
         R_ACC[0][0]=0.01   # Covariance error for acclometer in x direction
         R_ACC[1][1]=0.01   # Covariance error for acclometer in y direction
         R_ACC[2][2]=0.01   # Covariance error for acclometer in z direction
         R_MAG[0][0]=0.01   # Covariance error for magnometer in x direction
         R_MAG[1][1]=0.01   # Covariance error for magnometer in y direction
-        R_EUL[2][2]=0.01   # Covariance error for magnometer in z direction
+        R_MAG[2][2]=0.01   # Covariance error for magnometer in z direction
         # Define initial states
         X_INIT=numpy.zeros([4,1],dtype=float)
         # initialize a UKF with this class's members
-        self.uncented_kf= UnscentedKF(self.system_dynamics, self.measurement_dynamics, Q, R, P0, x0)
+        self.uncented_kf= UnscentedKF(self.system_dynamics, self.measurement_dynamics, Q, self., P0, x0)
     
     def sys_dym(self,x_input,x_val):
         system_matrix=numpy.matrix([[1,-x_input[0]*self.dt/2,-x_input[1]*self.dt/2,-x_input[2]*self.dt/2]...,[0,1,dt,0],[0,0,1,0],[0,0,0,1]])
@@ -115,15 +116,23 @@ class AttitudeFilter():
         return 
     
     def mea_dym(self,)
-    
-    def acc_update(self,data):
         
     def gyro_update(self,data):
+        mag_mea=[data.vector.x,data.vector.y,data.vector.z]
+        mea_type=2;
+        self.uncented_kf=measurement_update(meag_mea,mea_type)   
+   
+    def acc_update(self,data):
+        acc_mea=[data.vector.x,data.vector.y,data.vector.z]
+        mea_type=1;
+        self.uncented_kf=measurement_update(acc_mea,mea_type)
         
     def mag_update(self,data):
         mag_mea=[data.vector.x,data.vector.y,data.vector.z]
         mea_type=2;
-        self.uncented_kf=measurement_update(meag_mea,mea_type)        
+        self.uncented_kf=measurement_update(mag_mea,mea_type)
+        
+    def 
         
 def mainloop():
     # Starts the node
