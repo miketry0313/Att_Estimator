@@ -63,7 +63,7 @@ class UnscentedKF():
         temp_prior = x_chi_current-numpy.tile(self.x_hat_prior, (1, (2*self.n+1)))
         p_prior=numpy.dot(temp_prior,numpy.dot(W_C,temp_prior.T))+q_qua
         
-    def measurement_update(self,mea_data):
+    def measurement_update(self,mea_data,R_EUL):
          """Measurement Update Part in UKF
 
         Attributes:
@@ -96,15 +96,7 @@ class AttitudeFilter():
         Q_EUL[0][0]=0.01   # Uncertainty in pitch angle when system subject flucturation
         Q_EUL[1][1]=0.01   # Uncertainty in roll angle when system subject flucturation
         Q_EUL[2][2]=0.01   # Uncertainty in yaw angle when system subject flucturation
-        R_ACC=numpy.eye(3,dtype=float) 
-        R_MAG=numpy.eye(3,dtype=float)
-        # Define measurement noise matrix in Euler form
-        R_ACC[0][0]=0.01   # Covariance error for acclometer in x direction
-        R_ACC[1][1]=0.01   # Covariance error for acclometer in y direction
-        R_ACC[2][2]=0.01   # Covariance error for acclometer in z direction
-        R_MAG[0][0]=0.01   # Covariance error for magnometer in x direction
-        R_MAG[1][1]=0.01   # Covariance error for magnometer in y direction
-        R_MAG[2][2]=0.01   # Covariance error for magnometer in z direction
+        
         # Define initial states
         X_INIT=numpy.zeros([4,1],dtype=float)
         # initialize a UKF with this class's members
@@ -118,21 +110,30 @@ class AttitudeFilter():
     def mea_dym(self,)
         
     def gyro_update(self,data):
-        mag_mea=[data.vector.x,data.vector.y,data.vector.z]
-        mea_type=2;
-        self.uncented_kf=measurement_update(meag_mea,mea_type)   
+        gyro_mea=[data.vector.x,data.vector.y,data.vector.z]
+        self.uncented_kf=measurement_update(gyro_mea)   
    
     def acc_update(self,data):
         acc_mea=[data.vector.x,data.vector.y,data.vector.z]
-        mea_type=1;
-        self.uncented_kf=measurement_update(acc_mea,mea_type)
+        R_EUL=self.cov_given(1) 
+        self.uncented_kf=measurement_update(acc_mea,R_EUL)
         
     def mag_update(self,data):
         mag_mea=[data.vector.x,data.vector.y,data.vector.z]
-        mea_type=2;
-        self.uncented_kf=measurement_update(mag_mea,mea_type)
+        R_EUL=self.cov_given(2)
+        self.uncented_kf=measurement_update(mag_mea,R_EUL)
         
-    def 
+    def cov_given(self,mea_type):
+        R_EUL=numpy.eye(3,dtype=float)
+        if mea_type==1:
+            R_EUL[0][0]=0.01   # Covariance error for acclometer in x direction
+            R_EUL[1][1]=0.01   # Covariance error for acclometer in y direction
+            R_EUL[2][2]=0.01
+        else:
+            R_EUL[0][0]=0.01   # Covariance error for magnometer in x direction
+            R_EUL[1][1]=0.01   # Covariance error for magnometer in y direction
+            R_EUL[2][2]=0.01   # Covariance error for magnometer in z direction
+        return(R_EUL)
         
 def mainloop():
     # Starts the node
