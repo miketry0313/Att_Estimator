@@ -35,7 +35,7 @@ class UnscentedKF():
         self.W_C[0][0]=CONST_LAMBDA/(CONST_N+CONST_LAMBDA)+(1-CONST_ALPHA**2+CONST_BETA)
         for i in range(0,2*CONST_N+1):
             self.W_C[i][i]=self.W_M[i]
-        self.p_qua
+        self.p_qua #Covariance matrix in quaternion form
         self.P0_QUA
     
     def time_update(self,x_pre,q_qua,x_input):
@@ -47,11 +47,12 @@ class UnscentedKF():
         """
         # find cholesky but check for non positive definite matrices
         # need to calculate eignvalue!!! show eigenvalue greater than one
-        try:
-            l_chol = numpy.linalg.cholesky(self.p_qua) # returns lower
-        except:
-            # we settled a bit too far, reset
-            l_chol = numpy.linalg.cholesky(self.P0_QUA) # returns lower of initial covarience matrix
+        w,v=numpy.linalg.eig(self.p_qua)
+        for i in range(0,CONST_N+1):
+            if w[i]<0:
+                self.p_qua=self.P0_QUA
+                break
+        l_chol = numpy.linalg.cholesky(self.p_qua) # returns lower
         # Calculate sigma points
         x_plus=numpy.tile(self.CONST_N,numpy.array([x_pre+CONST_LAMBDA*L_chol]))
         x_mius=numpy.tile(self.CONST_N,numpy.array([x_pre-CONST_LAMBDA*L_chol]))
@@ -62,14 +63,14 @@ class UnscentedKF():
         temp_prior = x_chi_current-numpy.tile(self.x_hat_prior, (1, (2*self.n+1)))
         p_prior=numpy.dot(temp_prior,numpy.dot(W_C,temp_prior.T))+q_qua
         
-    def measurement_update(self,mea_dym,y_input,q_qua):
+    def measurement_update(self,mea_data):
          """Measurement Update Part in UKF
 
         Attributes:
             likes_spam: A boolean indicating if we like SPAM or not.
             eggs: An integer count of the eggs we have laid.
         """
-        y_chi_prior=self.mea_dym(self.x_hat_prior,y_input)
+        y_chi_prior=self.mea_dym(mea_data,self.x_chi_current)
         self.y_hat_prior=y_chi_prior*self.W_M
         temp_x = self.x_chi_current-numpy.tile(self.x_hat_prior, (1, (2*self.n+1)))
         temp_y = self.y_chi_current-numpy.tile(self.y_hat_prior, (1, (2*self.n+1)))
@@ -97,16 +98,16 @@ class AttitudeFilter():
         Q_EUL[2][2]=0.01   # Uncertainty in yaw angle when system subject flucturation
         R_EUL=numpy.eye(6,dtype=float)  
         # Define measurement noise matrix in Euler form
-        R_EUL[0][0]=0.01   # Covariance error for acclometer in x direction
-        R_EUL[1][1]=0.01   # Covariance error for acclometer in y direction
-        R_EUL[2][2]=0.01   # Covariance error for acclometer in z direction
-        R_EUL[3][3]=0.01   # Covariance error for magnometer in x direction
-        R_EUL[4][4]=0.01   # Covariance error for magnometer in y direction
-        R_EUL[5][5]=0.01   # Covariance error for magnometer in z direction
+        R_ACC[0][0]=0.01   # Covariance error for acclometer in x direction
+        R_ACC[1][1]=0.01   # Covariance error for acclometer in y direction
+        R_ACC[2][2]=0.01   # Covariance error for acclometer in z direction
+        R_MAG[0][0]=0.01   # Covariance error for magnometer in x direction
+        R_MAG[1][1]=0.01   # Covariance error for magnometer in y direction
+        R_EUL[2][2]=0.01   # Covariance error for magnometer in z direction
         # Define initial states
         X_INIT=numpy.zeros([4,1],dtype=float)
         # initialize a UKF with this class's members
-        self.= UnscentedKF(self.system_dynamics, self.measurement_dynamics, Q, R, P0, x0)
+        self.uncented_kf= UnscentedKF(self.system_dynamics, self.measurement_dynamics, Q, R, P0, x0)
     
     def sys_dym(self,x_input,x_val):
         system_matrix=numpy.matrix([[1,-x_input[0]*self.dt/2,-x_input[1]*self.dt/2,-x_input[2]*self.dt/2]...,[0,1,dt,0],[0,0,1,0],[0,0,0,1]])
@@ -114,7 +115,15 @@ class AttitudeFilter():
         return 
     
     def mea_dym(self,)
+    
+    def acc_update(self,data):
         
+    def gyro_update(self,data):
+        
+    def mag_update(self,data):
+        mag_mea=[data.vector.x,data.vector.y,data.vector.z]
+        mea_type=2;
+        self.uncented_kf=measurement_update(meag_mea,mea_type)        
         
 def mainloop():
     # Starts the node
@@ -123,7 +132,7 @@ def mainloop():
     i_filter = AttitudeFilter()   # Define a variable as AttitudeFilter class
     # Subscribes accelometer, gyro and magnometer data from IMU for our filter
     sub_accel = rospy.Subscriber('/auv_accel',Vector3Stamped, i_filter.acc_update)
-    sub_pose = rospy.Subscriber('/auv_pose', PoseStamped, i_filter.pose_update)
+    sub_pose = rospy.Subscriber('/auv_pose', PoseStamped, i_filter.gyro_update)
     sub_mag = rospy.Subscriber('/auv_mag', Vector3Stamped, i_filter.mag_update)    
     while not rospy.is_shutdown():
         rospy.sleep(0.01)
