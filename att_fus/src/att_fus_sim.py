@@ -6,6 +6,8 @@ Created on Feb 9 2015
 """
 import rospy
 import numpy 
+import scipy.io
+
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Vector3Stamped
 
@@ -20,13 +22,16 @@ class UnscentedKF():
         """Initiates Uncented Kalman Filter """
         self.p_cov=P_INIT  # Initialize covariance matrix        
         self.x_hat=X_INIT
-        self.P_INITIAL=P_INIT        
+        self.P_INITIAL=P_INIT      
+        self.sys_dynamics=sys_dyn
+        self.mea_dynamics=mea_dyn
+        self.x_chi_cur=numpy.zeros([3,2*X_INIT.size+1],dtype=float)
         CONST_ALPHA=1   #Give a value for the spread of sigma point
         CONST_BETA=2   #Give a value for the prior knowledge of distribution
         self.CONST_N=self.x_hat.size   #Give a value for scaling parameter
         self.CONST_LAMBDA=CONST_ALPHA*numpy.sqrt(self.CONST_N)
         # Define Wm Matrix
-        self.W_M=numpy.zeors([2*self.CONST_N+1,1],dtype=float)
+        self.W_M=numpy.zeros([2*self.CONST_N+1,1],dtype=float)
         self.W_M[0][0]=((CONST_ALPHA**2)*(self.CONST_N)-self.CONST_N)/(self.CONST_N+self.CONST_LAMBDA)
         for i in range(0,2*self.CONST_N+1):
             self.W_M[i]=1/(2*self.CONST_N+2*self.CONST_LAMBDA)
@@ -56,14 +61,14 @@ class UnscentedKF():
         x_minus=numpy.tile(self.CONST_N,numpy.array([self.x_hat-self.CONST_LAMBDA*l_chol]))
         x_self=numpy.array([self.x_hat])
         x_chi_prior=numpy.concatenate((x_self,x_plus,x_minus))
-        self.x_chi_cur=self.sys_dym(gyro_input,x_chi_prior)
+        self.x_chi_cur=self.sys_dynamics(gyro_input,x_chi_prior)
         self.x_hat_prior=numpy.dot(self.x_chi_cur,self.W_M)
         temp_prior = self.x_chi_cur-numpy.tile(self.x_hat_prior, (1, (2*self.CONST_N+1)))
         self.p_prior=numpy.dot(temp_prior,numpy.dot(self.W_C,temp_prior.T))+Q_EUL
         
         
     def measurement_update(self,mea_input,R_EUL,INTERTIAL_COM):
-        y_chi_prior=self.mea_dym(mea_input,self.x_chi_cur,self.CONST_N,INTERTIAL_COM)
+        y_chi_prior=self.mea_dynamics(self.x_chi_cur,self.CONST_N,INTERTIAL_COM)
         y_hat_prior=y_chi_prior*self.W_M
         temp_x = self.x_chi_current-numpy.tile(self.x_hat_prior, (1, (2*self.CONST_N+1)))
         temp_y = y_chi_prior-numpy.tile(y_hat_prior, (1, (2*self.CONST_N+1)))
@@ -145,16 +150,18 @@ class AttitudeFilter():
         return self.y_chi_cur
                 
     def gyro_update(self,data):
-        gyro_mea=[data.vector.x,data.vector.y,data.vector.z]
+        #gyro_mea=[data.vector.x,data.vector.y,data.vector.z]
+        gyro_mea=[data[0],data[1],data[2]]        
         self.uncented_kf.time_update(gyro_mea,self.Q_EUL)   
    
     def acc_update(self,data):
-        acc_mea=[data.vector.x,data.vector.y,data.vector.z]
+        #acc_mea=[data.vector.x,data.vector.y,data.vector.z]
+        acc_mea=[data[0],data[1],data[2]]
         INERTIAL_COM=numpy.zeros([3,1],dtype=float)
         R_EUL=numpy.zeros([3,3],dtype=float)
         INERTIAL_COM[0][0]=0
-        INERTIAL_COM[0][1]=0
-        INERTIAL_COM[0][2]=0.98
+        INERTIAL_COM[1][0]=0
+        INERTIAL_COM[2][0]=0.98
         R_EUL[0][0]=0.01   # Covariance error for acclometer in x direction
         R_EUL[1][1]=0.01   # Covariance error for acclometer in y direction
         R_EUL[2][2]=0.01
@@ -176,11 +183,18 @@ def mainloop():
     # Starts the node
     rospy.init_node('att_fus')
     i_filter = AttitudeFilter()   # Define a variable as AttitudeFilter class
+    data=scipy.io.loadmat('/home/try/auv/estimation/ros_fus/src/Att_Estimator/att_fus/test_data/card1.mat')
+    n=0    
+    accel=data['accel']
+    euler=data['euler']
     # Subscribes accelometer, gyro and magnometer data from IMU for our filter
-    sub_accel = rospy.Subscriber('/auv_accel',Vector3Stamped, i_filter.acc_update)
-    sub_pose = rospy.Subscriber('/auv_pose', PoseStamped, i_filter.gyro_update)
-    sub_mag = rospy.Subscriber('/auv_mag', Vector3Stamped, i_filter.mag_update)    
+    #sub_accel = rospy.Subscriber('/auv_accel',Vector3Stamped, i_filter.acc_update)
+    #sub_pose = rospy.Subscriber('/auv_pose', PoseStamped, i_filter.gyro_update)
+    #sub_mag = rospy.Subscriber('/auv_mag', Vector3Stamped, i_filter.mag_update)    
     while not rospy.is_shutdown():
+        i_filter.acc_update(accel[:,n])        
+        i_filter.gyro_update(euler[:,n])        
+        n=n+1 
         rospy.sleep(0.01)
 
 # Main node function
