@@ -23,12 +23,15 @@ class UnscentedKF():
         p_cov: error covirance matrix (n by n)
         p_prior: prior error covariance (n by n)
         x_hat: state estiamte
-        
+        x_chi_cur: state sigma points by giving k-1
+        CONST_N: number of sigma points
+        CONST_LAMBDA: scaling parameter
+        W_C,W_M: corresponding weight
         
     """
     def __init__(self,sys_dyn,mea_dyn,P_INIT,X_INIT):
         """Initiates Uncented Kalman Filter """
-        self.p_cov=P_INIT  # Initialize covariance matrix        
+        self.p_cov=P_INIT        
         self.p_prior=P_INIT
         self.x_hat=X_INIT
         self.x_hat_prior=X_INIT
@@ -38,25 +41,23 @@ class UnscentedKF():
         self.x_chi_cur=numpy.zeros([4,2*X_INIT.size+1],dtype=float)
         CONST_ALPHA=1   #Give a value for the spread of sigma point
         CONST_BETA=2   #Give a value for the prior knowledge of distribution
-        self.CONST_N=self.x_hat.size   #Give a value for scaling parameter
+        self.CONST_N=self.x_hat.size   
         self.CONST_LAMBDA=CONST_ALPHA*numpy.sqrt(self.CONST_N)
-        # Define Wm Matrix
         self.W_M=numpy.zeros([2*self.CONST_N+1,1],dtype=float)
         self.W_M[0][0]=((CONST_ALPHA**2)*(self.CONST_N)-self.CONST_N)/(self.CONST_N+self.CONST_LAMBDA)
         for i in range(0,2*self.CONST_N+1):
-            self.W_M[i]=1/(2*self.CONST_N+2*self.CONST_LAMBDA)
-        # Define Wc Matrix        
+            self.W_M[i]=1/(2*self.CONST_N+2*self.CONST_LAMBDA)       
         self.W_C=numpy.eye(2*self.CONST_N+1,dtype=float)
         self.W_C[0][0]=self.CONST_LAMBDA/(self.CONST_N+self.CONST_LAMBDA)+(1-CONST_ALPHA**2+CONST_BETA)
         for i in range(0,2*self.CONST_N+1):
             self.W_C[i][i]=self.W_M[i]
             
-    def time_update(self,gyro_input,Q_EUL):
+    def time_update(self,system_input,Q_COV):
         """Time Update Part in UKF
 
-        Attributes:
-            likes_spam: A boolean indicating if we like SPAM or not.
-            eggs: An integer count of the eggs we have laid.
+        Args:
+            system_input: system input
+            Q_COV: system noise covariance matrix
         """
         # find cholesky but check for non positive definite matrices
         # need to calculate eignvalue!!! show eigenvalue greater than zero
@@ -66,7 +67,7 @@ class UnscentedKF():
             if eigenvalue_p[i]<0:
                 self.p_cov=self.P_INITIAL
                 break
-        l_chol= numpy.linalg.cholesky(self.p_cov) # returns lower
+        l_chol= numpy.linalg.cholesky(self.p_cov) 
         # Calculate sigma points
         for i in range(2*self.CONST_N+1):
             if i==0:
@@ -76,22 +77,29 @@ class UnscentedKF():
             else:
                 x_chi_sigma[:,i]=self.x_hat.flatten()-l_chol[:,i-self.CONST_N-1]*self.CONST_LAMBDA
         #Calculate state sigma points by giving k-1
-        self.x_chi_cur=self.sys_dynamics(gyro_input,x_chi_sigma)
+        self.x_chi_cur=self.sys_dynamics(system_input,x_chi_sigma)
         #Obtain a priori estimate
         self.x_hat_prior=numpy.dot(self.x_chi_cur,self.W_M)
         #Estimate a prior error covariance
         temp_prior = self.x_chi_cur-numpy.tile(self.x_hat_prior, (1, (2*self.CONST_N+1)))
-        self.p_prior=numpy.dot(temp_prior,numpy.dot(self.W_C,temp_prior.T))+Q_EUL
+        self.p_prior=numpy.dot(temp_prior,numpy.dot(self.W_C,temp_prior.T))+Q_COV
         
-    def measurement_update(self,mea_input,R_EUL,INTERTIAL_COM):
+    def measurement_update(self,mea_input,R_COV,mea_ref):
+        """Measurement Update Part in UKF
+
+        Args:
+            mea_input: measurement input
+            R_COV: measurement noise covariance matrix
+            mea_ref: measurement reference points
+        """
         #Calculate measurement sigma points by giving k-1
-        y_chi_prior=self.mea_dynamics(self.x_chi_cur,self.CONST_N,INTERTIAL_COM)
+        y_chi_prior=self.mea_dynamics(self.x_chi_cur,self.CONST_N,mea_ref)
         #Obtain a predicted measurement
         y_hat_prior=numpy.dot(y_chi_prior,self.W_M)
         temp_x = self.x_chi_cur-numpy.tile(self.x_hat_prior, (1, (2*self.CONST_N+1)))
         temp_y = y_chi_prior-numpy.tile(y_hat_prior, (1, (2*self.CONST_N+1)))
         #Estimate the covariance of y        
-        p_yy=numpy.dot(temp_y,numpy.dot(self.W_C,temp_y.T))+R_EUL
+        p_yy=numpy.dot(temp_y,numpy.dot(self.W_C,temp_y.T))+R_COV
         #Estimate the covariance between x and y        
         p_xy=numpy.dot(temp_x,numpy.dot(self.W_C,temp_y.T))
         #Calculate Kalman Filter gain
@@ -117,6 +125,7 @@ class AttitudeFilter():
         """Initiates AttitudeFilter Classes"""
         P_INIT=1000.0*numpy.eye(4,dtype=float)     
         self.X_INIT=numpy.zeros([4,1],dtype=float)   
+        X_INIT[0][0]=1
         self.Q_EUL=numpy.eye(4,dtype=float)   
         self.Q_EUL[0][0]=0.01   # Uncertainty in quatnion when system subject flucturation
         self.Q_EUL[1][1]=0.01   
@@ -286,7 +295,7 @@ def mainloop():
     n=2    
     accel=data['accel']
     euler=data['euler']
-    # Subscribes accelometer, gyro and magnometer data from IMU for our filter
+    #Subscribes accelometer, gyro and magnometer data from IMU for our filter
     #sub_accel = rospy.Subscriber('/auv_accel',Vector3Stamped, i_filter.acc_update)
     #sub_pose = rospy.Subscriber('/auv_pose', PoseStamped, i_filter.gyro_update)
     #sub_mag = rospy.Subscriber('/auv_mag', Vector3Stamped, i_filter.mag_update)    
