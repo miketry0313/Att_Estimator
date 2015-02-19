@@ -108,6 +108,7 @@ class UnscentedKF():
         self.x_hat=self.x_hat+numpy.dot(k_kalman,(mea_input-y_hat_prior))
         #Estimate a posterior error covariance
         self.p_cov=self.p_prior-numpy.dot(k_kalman,numpy.dot(p_yy,k_kalman.T))
+        return(self.x_hat)
      
 class AttitudeFilter():
     """Attitude estimator for AUV by fusing IMU data 
@@ -125,17 +126,17 @@ class AttitudeFilter():
         """Initiates AttitudeFilter Classes"""
         P_INIT=1000.0*numpy.eye(4,dtype=float)     
         self.X_INIT=numpy.zeros([4,1],dtype=float)   
-        X_INIT[0][0]=1
+        self.X_INIT[0][0]=1
         self.Q_EUL=numpy.eye(4,dtype=float)   
-        self.Q_EUL[0][0]=0.01   # Uncertainty in quatnion when system subject flucturation
-        self.Q_EUL[1][1]=0.01   
-        self.Q_EUL[2][2]=0.01   
-        self.Q_EUL[3][3]=0.01   
+        self.Q_EUL[0][0]=0.001   # Uncertainty in quatnion when system subject flucturation
+        self.Q_EUL[1][1]=0.001   
+        self.Q_EUL[2][2]=0.001   
+        self.Q_EUL[3][3]=0.001   
         # initialize a UKF with this class's members
         self.uncented_kf= UnscentedKF(self.system_dynamics, self.measurement_dynamics,P_INIT,self.X_INIT)
         self.x_chi_cur=numpy.zeros([4,2*self.X_INIT.size+1],dtype=float)
         self.last_update=0
-        self.dt=0.01
+        self.dt=0.001
      
     def system_dynamics(self,gyro_input,x_chi_sigma):
         """System dynamics function: 
@@ -222,8 +223,9 @@ class AttitudeFilter():
         gyro_mea[0][0]=data[0] 
         gyro_mea[1][0]=data[1]
         gyro_mea[2][0]=data[2]    
+        gyro_qua=self.euler2_qua(gyro_mea)
         #Trigger time update
-        self.uncented_kf.time_update(gyro_mea,self.Q_EUL)   
+        self.uncented_kf.time_update(gyro_qua,self.Q_EUL)   
    
     def acc_update(self,data):
         """
@@ -246,7 +248,10 @@ class AttitudeFilter():
         R_EUL[1][1]=0.01   # Covariance error for acclometer in y direction
         R_EUL[2][2]=0.01
         #Trigger measurement update update
-        self.uncented_kf.measurement_update(acc_mea,R_EUL,INERTIAL_COM)
+        est_qua=self.uncented_kf.measurement_update(acc_mea,R_EUL,INERTIAL_COM)
+        est_eul=self.qua2_euler(est_qua)
+        print 'Estimated Euler',est_eul
+        print 'Estimated.Quatenion',est_qua
         
     def mag_update(self,data):
         """
@@ -265,7 +270,9 @@ class AttitudeFilter():
         R_EUL[1][1]=0.01   # Covariance error for magnometer in y direction
         R_EUL[2][2]=0.01
         #Trigger measurement update
-        self.uncented_kf.measurement_update(mag_mea,R_EUL,INERTIAL_COM)
+        est_qua=self.uncented_kf.measurement_update(mag_mea,R_EUL,INERTIAL_COM)
+        est_eul=self.qua2_euler(est_qua)
+        print est_eul
     
     def euler2_qua(self,euler_angle):
         qua_angle=numpy.zeros([4,1],dtype=float)     
@@ -280,10 +287,11 @@ class AttitudeFilter():
         return qua_angle
     
     def qua2_euler(self,qua_angle):
-        euler_angle=numpy.zeros([3,1],dtype=float)     
-        euler_angle[0]=atan2(2*(qua_angle[0]*qua_angle[1]+qua_angle[2]*qua_angle[3]),1-2*(qua_angle[1]**2+qua_angle[2]**2))
-        euler_angle[1]=asin(2*(qua_angle[0]*qua_angle[2]-qua_angle[3]*qua_angle[1]))
-        euler_angle[2]=atan2(2*(qua_angle[0]*qua_angle[3]+qua_angle[1]*qua_angle[2]),1-2*(qua_angle[2]**2+qua_angle[3]**2))
+        euler_angle=numpy.zeros([3,1],dtype=float)    
+        #TODO: need to check atan2(x,y) or atan2(y,x)
+        euler_angle[0]=math.atan2(2*(qua_angle[0]*qua_angle[1]+qua_angle[2]*qua_angle[3]),1-2*(qua_angle[1]**2+qua_angle[2]**2))
+        euler_angle[1]=math.asin(2*(qua_angle[0]*qua_angle[2]-qua_angle[3]*qua_angle[1]))
+        euler_angle[2]=math.atan2(2*(qua_angle[0]*qua_angle[3]+qua_angle[1]*qua_angle[2]),1-2*(qua_angle[2]**2+qua_angle[3]**2))
         return euler_angle
         
 def mainloop():
@@ -291,15 +299,23 @@ def mainloop():
     #rospy.init_node('att_fus')
     i_filter = AttitudeFilter()   # Define a variable as AttitudeFilter class
     # for try: data=scipy.io.loadmat('/home/try/auv/estimation/ros_fus/src/Att_Estimator/att_fus/test_data/card1.mat')
-    data=scipy.io.loadmat('/home/avia/cat/src/auv/Att_Estimator/att_fus/test_data/card1.mat')
+    data=scipy.io.loadmat('/home/avia/cat/src/auv/Att_Estimator/att_fus/test_data/imu.mat')
     n=2    
-    accel=data['accel']
-    euler=data['euler']
+    accel=numpy.zeros([3,2005],dtype=float)  
+    euler=numpy.zeros([3,2005],dtype=float) 
+    
+    accel[0,:]=numpy.squeeze(data['v_raw__imu_xacc']*0.001)
+    accel[1,:]=numpy.squeeze(data['v_raw__imu_yacc']*0.001)
+    accel[2,:]=numpy.squeeze(data['v_raw__imu_zacc']*0.001)
+    #Convert millirad/sec into rad/sec
+    euler[0,:]=numpy.squeeze(data['v_raw__imu_xgyro']*0.001)
+    euler[1,:]=numpy.squeeze(data['v_raw__imu_ygyro']*0.001)
+    euler[2,:]=numpy.squeeze(data['v_raw__imu_zgyro']*0.001)
     #Subscribes accelometer, gyro and magnometer data from IMU for our filter
     #sub_accel = rospy.Subscriber('/auv_accel',Vector3Stamped, i_filter.acc_update)
     #sub_pose = rospy.Subscriber('/auv_pose', PoseStamped, i_filter.gyro_update)
     #sub_mag = rospy.Subscriber('/auv_mag', Vector3Stamped, i_filter.mag_update)    
-    while not n>100:
+    while not n>2003:
         i_filter.acc_update(accel[:,n])        
         i_filter.gyro_update(euler[:,n])        
         n=n+1 
